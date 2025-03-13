@@ -24,5 +24,65 @@
             "console": "integratedTerminal",
             "justMyCode": false
         },
+        {
+            "name": "Debug movie-shots",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "args": [
+                "${workspaceFolder}/config/movie-shots.yml"
+            ],
+            "env": {
+                "CUDA_LAUNCH_BLOCKING": "1",
+                "DEBUG_TOOLKIT": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug CatVTON",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "args": [
+                "${workspaceFolder}/config/catvton.yml"
+            ],
+            "env": {
+                "CUDA_LAUNCH_BLOCKING": "1",
+                "DEBUG_TOOLKIT": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug Generate Flux",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "args": [
+                "${workspaceFolder}/config/generate_flux.yaml"
+            ],
+            "env": {
+                "CUDA_LAUNCH_BLOCKING": "1",
+                "DEBUG_TOOLKIT": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug Generate Flux-Fill",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "args": [
+                "${workspaceFolder}/config/generate_flux_fill.yaml"
+            ],
+            "env": {
+                "CUDA_LAUNCH_BLOCKING": "1",
+                "DEBUG_TOOLKIT": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
     ]
 }

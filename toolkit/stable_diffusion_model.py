@@ -49,7 +49,7 @@ from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, T2IAda
     StableDiffusionXLImg2ImgPipeline, LCMScheduler, Transformer2DModel, AutoencoderTiny, ControlNetModel, \
     StableDiffusionXLControlNetPipeline, StableDiffusionControlNetPipeline, StableDiffusion3Pipeline, \
     StableDiffusion3Img2ImgPipeline, PixArtSigmaPipeline, AuraFlowPipeline, AuraFlowTransformer2DModel, FluxPipeline, \
-    FluxTransformer2DModel, FlowMatchEulerDiscreteScheduler, SD3Transformer2DModel, Lumina2Text2ImgPipeline
+    FluxTransformer2DModel, FlowMatchEulerDiscreteScheduler, SD3Transformer2DModel, Lumina2Text2ImgPipeline, FluxFillPipeline
 from toolkit.models.lumina2 import Lumina2Transformer2DModel
 from toolkit.models.flex2 import Flex2Pipeline
 import diffusers
@@ -68,7 +68,6 @@ from optimum.quanto import freeze, qfloat8, quantize, QTensor, qint4
 from toolkit.accelerator import get_accelerator, unwrap_model
 from typing import TYPE_CHECKING
 from toolkit.print import print_acc
-from diffusers import FluxFillPipeline
 from transformers import AutoModel, AutoTokenizer, Gemma2Model, Qwen2Model, LlamaModel
 
 if TYPE_CHECKING:
@@ -185,6 +184,7 @@ class StableDiffusion:
         self.is_pixart = model_config.is_pixart
         self.is_auraflow = model_config.is_auraflow
         self.is_flux = model_config.is_flux
+        self.is_flux_fill = model_config.is_flux_fill
         self.is_flex2 = model_config.is_flex2
         self.is_lumina2 = model_config.is_lumina2
 
@@ -735,6 +735,8 @@ class StableDiffusion:
             Pipe = FluxPipeline
             if self.is_flex2:
                 Pipe = Flex2Pipeline
+            if self.is_flux_fill:
+                Pipe = FluxFillPipeline
             
             pipe: Pipe = Pipe(
                 scheduler=scheduler,
@@ -1192,6 +1194,8 @@ class StableDiffusion:
                     Pipe = FluxPipeline
                     if self.is_flex2:
                         Pipe = Flex2Pipeline
+                    if self.is_flux_fill:
+                        Pipe = FluxFillPipeline
                     
                     pipeline = Pipe(
                         vae=self.vae,
@@ -1512,7 +1516,10 @@ class StableDiffusion:
                                 width=gen_config.width,
                                 num_inference_steps=gen_config.num_inference_steps,
                                 guidance_scale=gen_config.guidance_scale,
-                                latents=gen_config.latents,
+                                # latents=gen_config.latents,
+                                masked_image_latents=gen_config.masked_image_latents,
+                                # image=gen_config.image,
+                                # mask_image=gen_config.mask_image,
                                 generator=generator,
                                 callback_on_step_end=callback_on_step_end,
                                 **extra

@@ -435,6 +435,7 @@ class ModelConfig:
         self.is_auraflow: bool = kwargs.get('is_auraflow', False)
         self.is_v3: bool = kwargs.get('is_v3', False)
         self.is_flux: bool = kwargs.get('is_flux', False)
+        self.is_flux_fill: bool = kwargs.get('is_flux_fill', False)
         self.is_flex2: bool = kwargs.get('is_flex2', False)
         if self.is_flex2:
             self.is_flux = True
@@ -729,6 +730,9 @@ class GenerateImageConfig:
             adapter_image_path: str = None,  # path to adapter image
             adapter_conditioning_scale: float = 1.0,  # scale for adapter conditioning
             latents: Union[torch.Tensor | None] = None,  # input latent to start with,
+            masked_image_latents: Union[torch.Tensor | None] = None,  # input latent for Flux Fill,
+            image = None,
+            mask_image = None,
             extra_kwargs: dict = None,  # extra data to save with prompt file
             refiner_start_at: float = 0.5,  # start at this percentage of a step. 0.0 to 1.0 . 1.0 is the end
             extra_values: List[float] = None,  # extra values to save with prompt file
@@ -744,6 +748,9 @@ class GenerateImageConfig:
         self.negative_prompt: str = negative_prompt
         self.negative_prompt_2: str = negative_prompt_2
         self.latents: Union[torch.Tensor | None] = latents
+        self.masked_image_latents: Union[torch.Tensor | None] = masked_image_latents
+        self.image = image
+        self.mask_image= mask_image
 
         self.output_path: str = output_path
         self.seed: int = seed
