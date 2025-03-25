@@ -9,9 +9,10 @@ import os
 import re
 from typing import Union, List, Optional
 
+from einops import rearrange
 import numpy as np
 import yaml
-from diffusers import T2IAdapter, ControlNetModel
+from diffusers import T2IAdapter, ControlNetModel, AutoencoderKL
 from diffusers.training_utils import compute_density_for_timestep_sampling
 from safetensors.torch import save_file, load_file
 # from lycoris.config import PRESET
@@ -53,6 +54,8 @@ from toolkit.metadata import get_meta_for_safetensors, load_metadata_from_safete
     parse_metadata_from_safetensors
 from toolkit.train_tools import get_torch_dtype, LearnableSNRGamma, apply_learnable_snr_gos, apply_snr_weight
 import gc
+from extensions.VitonHDDatagen import VitonHDTestDataset
+from jobs.process.GenerateProcess import prepare_fill_latents
 
 from tqdm import tqdm
 
@@ -248,71 +251,139 @@ class BaseSDTrainProcess(BaseTrainProcess):
         start_seed = sample_config.seed
         current_seed = start_seed
 
-        test_image_paths = []
-        if self.adapter_config is not None and self.adapter_config.test_img_path is not None:
-            test_image_path_list = self.adapter_config.test_img_path.split(',')
-            test_image_path_list = [p.strip() for p in test_image_path_list]
-            test_image_path_list = [p for p in test_image_path_list if p != '']
-            # divide up images so they are evenly distributed across prompts
-            for i in range(len(sample_config.prompts)):
-                test_image_paths.append(test_image_path_list[i % len(test_image_path_list)])
-
-        for i in range(len(sample_config.prompts)):
-            if sample_config.walk_seed:
-                current_seed = start_seed + i
-
-            step_num = ''
-            if step is not None:
-                # zero-pad 9 digits
-                step_num = f"_{str(step).zfill(9)}"
-
-            filename = f"[time]_{step_num}_[count].{self.sample_config.ext}"
-
-            output_path = os.path.join(sample_folder, filename)
-
-            prompt = sample_config.prompts[i]
-
-            # add embedding if there is one
-            # note: diffusers will automatically expand the trigger to the number of added tokens
-            # ie test123 will become test123 test123_1 test123_2 etc. Do not add this yourself here
-            if self.embedding is not None:
-                prompt = self.embedding.inject_embedding_to_prompt(
-                    prompt, expand_token=True, add_if_not_present=False
-                )
-            if self.adapter is not None and isinstance(self.adapter, ClipVisionAdapter):
-                prompt = self.adapter.inject_trigger_into_prompt(
-                    prompt, expand_token=True, add_if_not_present=False
-                )
-            if self.trigger_word is not None:
-                prompt = self.sd.inject_trigger_into_prompt(
-                    prompt, self.trigger_word, add_if_not_present=False
-                )
-
-            extra_args = {}
+        if not self.model_config.is_flux_fill:
+            test_image_paths = []
             if self.adapter_config is not None and self.adapter_config.test_img_path is not None:
-                extra_args['adapter_image_path'] = test_image_paths[i]
+                test_image_path_list = self.adapter_config.test_img_path.split(',')
+                test_image_path_list = [p.strip() for p in test_image_path_list]
+                test_image_path_list = [p for p in test_image_path_list if p != '']
+                # divide up images so they are evenly distributed across prompts
+                for i in range(len(sample_config.prompts)):
+                    test_image_paths.append(test_image_path_list[i % len(test_image_path_list)])
 
-            gen_img_config_list.append(GenerateImageConfig(
-                prompt=prompt,  # it will autoparse the prompt
-                width=sample_config.width,
-                height=sample_config.height,
-                negative_prompt=sample_config.neg,
-                seed=current_seed,
-                guidance_scale=sample_config.guidance_scale,
-                guidance_rescale=sample_config.guidance_rescale,
-                num_inference_steps=sample_config.sample_steps,
-                network_multiplier=sample_config.network_multiplier,
-                output_path=output_path,
-                output_ext=sample_config.ext,
-                adapter_conditioning_scale=sample_config.adapter_conditioning_scale,
-                refiner_start_at=sample_config.refiner_start_at,
-                extra_values=sample_config.extra_values,
-                logger=self.logger,
-                **extra_args
-            ))
+            for i in range(len(sample_config.prompts)):
+                if sample_config.walk_seed:
+                    current_seed = start_seed + i
 
-        # post process
-        gen_img_config_list = self.post_process_generate_image_config_list(gen_img_config_list)
+                step_num = ''
+                if step is not None:
+                    # zero-pad 9 digits
+                    step_num = f"_{str(step).zfill(9)}"
+
+                filename = f"[time]_{step_num}_[count].{self.sample_config.ext}"
+
+                output_path = os.path.join(sample_folder, filename)
+
+                prompt = sample_config.prompts[i]
+
+                # add embedding if there is one
+                # note: diffusers will automatically expand the trigger to the number of added tokens
+                # ie test123 will become test123 test123_1 test123_2 etc. Do not add this yourself here
+                if self.embedding is not None:
+                    prompt = self.embedding.inject_embedding_to_prompt(
+                        prompt, expand_token=True, add_if_not_present=False
+                    )
+                if self.adapter is not None and isinstance(self.adapter, ClipVisionAdapter):
+                    prompt = self.adapter.inject_trigger_into_prompt(
+                        prompt, expand_token=True, add_if_not_present=False
+                    )
+                if self.trigger_word is not None:
+                    prompt = self.sd.inject_trigger_into_prompt(
+                        prompt, self.trigger_word, add_if_not_present=False
+                    )
+
+                extra_args = {}
+                if self.adapter_config is not None and self.adapter_config.test_img_path is not None:
+                    extra_args['adapter_image_path'] = test_image_paths[i]
+
+                gen_img_config_list.append(GenerateImageConfig(
+                    prompt=prompt,  # it will autoparse the prompt
+                    width=sample_config.width,
+                    height=sample_config.height,
+                    negative_prompt=sample_config.neg,
+                    seed=current_seed,
+                    guidance_scale=sample_config.guidance_scale,
+                    guidance_rescale=sample_config.guidance_rescale,
+                    num_inference_steps=sample_config.sample_steps,
+                    network_multiplier=sample_config.network_multiplier,
+                    output_path=output_path,
+                    output_ext=sample_config.ext,
+                    adapter_conditioning_scale=sample_config.adapter_conditioning_scale,
+                    refiner_start_at=sample_config.refiner_start_at,
+                    extra_values=sample_config.extra_values,
+                    logger=self.logger,
+                    **extra_args
+                ))
+
+            # post process
+            gen_img_config_list = self.post_process_generate_image_config_list(gen_img_config_list)
+        else:
+            dataset = VitonHDTestDataset(sample_config.inpaint_data_path,
+                                        phase='test', order='unpaired',
+                                        size=(sample_config.height, sample_config.width // 2),
+                                        data_list="test_pairs.txt")
+            dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=2)
+
+            for data in dataloader:
+                prompt = sample_config.prompts[0]
+                latents, masked_latents = prepare_fill_latents(
+                    data["image"],
+                    data["im_mask"],
+                    data["inpaint_mask"],
+                    self.sd.vae,
+                    self.device_torch,
+                    get_torch_dtype(self.train_config.dtype)
+                )
+                
+                step_num = ''
+                if step is not None:
+                    # zero-pad 9 digits
+                    step_num = f"_{str(step).zfill(9)}"
+                filename = f"[time]_{step_num}_[count].{self.sample_config.ext}"
+                output_path = os.path.join(sample_folder, filename)
+
+                # add embedding if there is one
+                # note: diffusers will automatically expand the trigger to the number of added tokens
+                # ie test123 will become test123 test123_1 test123_2 etc. Do not add this yourself here
+                if self.embedding is not None:
+                    prompt = self.embedding.inject_embedding_to_prompt(
+                        prompt, expand_token=True, add_if_not_present=False
+                    )
+                if self.adapter is not None and isinstance(self.adapter, ClipVisionAdapter):
+                    prompt = self.adapter.inject_trigger_into_prompt(
+                        prompt, expand_token=True, add_if_not_present=False
+                    )
+                if self.trigger_word is not None:
+                    prompt = self.sd.inject_trigger_into_prompt(
+                        prompt, self.trigger_word, add_if_not_present=False
+                    )
+
+                extra_args = {}
+                if self.adapter_config is not None and self.adapter_config.test_img_path is not None:
+                    extra_args['adapter_image_path'] = test_image_paths[i]
+
+                gen_img_config_list.append(GenerateImageConfig(
+                    prompt=prompt,  # it will autoparse the prompt
+                    latents=latents,
+                    masked_image_latents=masked_latents,
+                    image = data['image'],
+                    mask_image = data['inpaint_mask'],
+                    width=sample_config.width,
+                    height=sample_config.height,
+                    negative_prompt=sample_config.neg,
+                    seed=current_seed,
+                    guidance_scale=sample_config.guidance_scale,
+                    guidance_rescale=sample_config.guidance_rescale,
+                    num_inference_steps=sample_config.sample_steps,
+                    network_multiplier=sample_config.network_multiplier,
+                    output_path=output_path,
+                    output_ext=sample_config.ext,
+                    adapter_conditioning_scale=sample_config.adapter_conditioning_scale,
+                    refiner_start_at=sample_config.refiner_start_at,
+                    extra_values=sample_config.extra_values,
+                    logger=self.logger,
+                    **extra_args
+                ))
 
         # if we have an ema, set it to validation mode
         if self.ema is not None:
@@ -992,6 +1063,10 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
                     conditioned_prompts.append(prompt)
 
+            if (batch.inpaint_mask_tensor is not None) and (batch.control_tensor is not None):
+                latents, inpaint_cond = self.prepare_vton(batch)
+                batch.latents = latents
+
             with self.timer('prepare_latents'):
                 dtype = get_torch_dtype(self.train_config.dtype)
                 imgs = None
@@ -1218,6 +1293,8 @@ class BaseSDTrainProcess(BaseTrainProcess):
 
 
                 noisy_latents = self.sd.add_noise(latents, noise, timesteps)
+                if self.model_config.is_flux_fill:
+                    noisy_latents = torch.cat([noisy_latents, inpaint_cond], dim=1)
 
                 # determine scaled noise
                 # todo do we need to scale this or does it always predict full intensity
@@ -1261,6 +1338,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 # prompts are already updated above
                 imgs = double_up_tensor(imgs)
                 batch.mask_tensor = double_up_tensor(batch.mask_tensor)
+                batch.inpaint_mask_tensor = double_up_tensor(batch.inpaint_mask_tensor)
                 batch.control_tensor = double_up_tensor(batch.control_tensor)
 
             noisy_latent_multiplier = self.train_config.noisy_latent_multiplier
@@ -1275,6 +1353,34 @@ class BaseSDTrainProcess(BaseTrainProcess):
             noise = noise.detach()
 
         return noisy_latents, noise, timesteps, conditioned_prompts, imgs
+    
+    def prepare_vton(self, batch: 'DataLoaderBatchDTO'):
+        device = self.device_torch
+        dtype = get_torch_dtype(self.train_config.dtype)
+        image = batch.tensor
+        cloth = batch.control_tensor
+        mask = batch.inpaint_mask_tensor
+
+        mask = mask[:, :1, :, :]
+        masked_image = image * (1-mask)
+
+        gt_image = torch.cat([cloth, image], dim=-1)
+        inpaint_image = torch.cat([cloth, masked_image], dim=-1)
+        inpaint_mask = torch.cat([torch.zeros_like(mask), mask], dim=-1)
+
+        imgs = [gt_image, inpaint_image]
+        gt_latent = self.sd.encode_images(gt_image)
+        inpaint_latent = self.sd.encode_images(inpaint_image)
+        
+        inpaint_mask = rearrange(
+            inpaint_mask[:, 0, :, :],
+            "b (h ph) (w pw) -> b (ph pw) h w",
+            ph=8,
+            pw=8,
+        ).to(device=device, dtype=dtype)
+        inpaint_cond = torch.cat([inpaint_latent, inpaint_mask], dim=1)
+
+        return gt_latent, inpaint_cond
 
     def setup_adapter(self):
         # t2i adapter

@@ -45,6 +45,7 @@ class SampleConfig:
         self.width: int = kwargs.get('width', 512)
         self.height: int = kwargs.get('height', 512)
         self.prompts: list[str] = kwargs.get('prompts', [])
+        self.inpaint_data_path = kwargs.get('inpaint_data_path', None)
         self.neg = kwargs.get('neg', False)
         self.seed = kwargs.get('seed', 0)
         self.walk_seed = kwargs.get('walk_seed', False)
@@ -641,6 +642,10 @@ class DatasetConfig:
         self.mask_min_value: float = kwargs.get('mask_min_value', 0.0)  # min value for . 0 - 1
         self.poi: Union[str, None] = kwargs.get('poi',
                                                 None)  # if one is set and in json data, will be used as auto crop scale point of interes
+        self.cloth_path: str = kwargs.get('cloth_path', None)  # depth maps, etc
+        self.inpaint_mask_path: str = kwargs.get('inpaint_mask_path', None)  # depth maps, etc
+        self.inpaint_mask_min_value: float = kwargs.get('inpaint_mask_min_value', 0.0)  # min value for . 0 - 1
+        self.is_vton: bool = kwargs.get('is_vton', False)
         self.num_repeats: int = kwargs.get('num_repeats', 1)  # number of times to repeat dataset
         # cache latents will store them in memory
         self.cache_latents: bool = kwargs.get('cache_latents', False)

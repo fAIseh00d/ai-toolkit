@@ -2094,7 +2094,7 @@ class StableDiffusion:
                         w=latent_model_input.shape[3] // 2,
                         ph=2,
                         pw=2,
-                        c=latent_model_input.shape[1],
+                        # c=latent_model_input.shape[1],
                     )
                     
                     if bypass_guidance_embedding:

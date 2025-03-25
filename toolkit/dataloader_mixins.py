@@ -444,6 +444,8 @@ class ImageProcessingDTOMixin:
                 self.load_clip_image()
             if self.has_mask_image:
                 self.load_mask_image()
+            if self.has_inpaint_mask_image:
+                self.load_inpaint_mask_image()
             if self.has_unconditional:
                 self.load_unconditional_image()
             return
@@ -539,6 +541,8 @@ class ImageProcessingDTOMixin:
                 self.load_clip_image()
             if self.has_mask_image:
                 self.load_mask_image()
+            if self.has_inpaint_mask_image:
+                self.load_inpaint_mask_image()
             if self.has_unconditional:
                 self.load_unconditional_image()
 
@@ -1633,3 +1637,179 @@ class CLIPCachingMixin:
 
         # restore device state
         self.sd.restore_device_state()
+
+class InpaintMaskFileItemDTOMixin:
+    def __init__(self: 'FileItemDTO', *args, **kwargs):
+        if hasattr(super(), '__init__'):
+            super().__init__(*args, **kwargs)
+        self.has_inpaint_mask_image = False
+        self.inpaint_mask_path: Union[str, None] = None
+        self.inpaint_mask_tensor: Union[torch.Tensor, None] = None
+        dataset_config: 'DatasetConfig' = kwargs.get('dataset_config', None)
+        self.inpaint_mask_min_value = dataset_config.inpaint_mask_min_value
+        if dataset_config.inpaint_mask_path is not None:
+            # find the control image path
+            inpaint_mask_path = dataset_config.inpaint_mask_path
+            # we are using control images
+            img_path = kwargs.get('path', None)
+            img_ext_list = ['.jpg', '.jpeg', '.png', '.webp']
+            file_name_no_ext = os.path.splitext(os.path.basename(img_path))[0]
+            for ext in img_ext_list:
+                if os.path.exists(os.path.join(inpaint_mask_path, file_name_no_ext + '_mask' + ext)):
+                    self.inpaint_mask_path = os.path.join(inpaint_mask_path, file_name_no_ext + '_mask' + ext)
+                    self.has_inpaint_mask_image = True
+                    break
+
+    def load_inpaint_mask_image(self: 'FileItemDTO'):
+        try:
+            img = Image.open(self.inpaint_mask_path)
+            img = exif_transpose(img)
+        except Exception as e:
+            print_acc(f"Error: {e}")
+            print_acc(f"Error loading image: {self.inpaint_mask_path}")
+
+        img = img.convert('RGB')
+        if self.dataset_config.invert_mask:
+            img = ImageOps.invert(img)
+        w, h = img.size
+        fix_size = False
+        if w > h and self.scale_to_width < self.scale_to_height:
+            # throw error, they should match
+            print_acc(f"unexpected values: w={w}, h={h}, file_item.scale_to_width={self.scale_to_width}, file_item.scale_to_height={self.scale_to_height}, file_item.path={self.path}")
+            fix_size = True
+        elif h > w and self.scale_to_height < self.scale_to_width:
+            # throw error, they should match
+            print_acc(f"unexpected values: w={w}, h={h}, file_item.scale_to_width={self.scale_to_width}, file_item.scale_to_height={self.scale_to_height}, file_item.path={self.path}")
+            fix_size = True
+
+        if fix_size:
+            # swap all the sizes
+            self.scale_to_width, self.scale_to_height = self.scale_to_height, self.scale_to_width
+            self.crop_width, self.crop_height = self.crop_height, self.crop_width
+            self.crop_x, self.crop_y = self.crop_y, self.crop_x
+
+        if self.flip_x:
+            # do a flip
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if self.flip_y:
+            # do a flip
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+
+        # randomly apply a blur up to 0.5% of the size of the min (width, height)
+        min_size = min(img.width, img.height)
+        blur_radius = int(min_size * random.random() * 0.005)
+        img = img.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+        # make grayscale
+        img = img.convert('L')
+
+        if self.dataset_config.buckets:
+            # scale and crop based on file item
+            img = img.resize((self.scale_to_width, self.scale_to_height), Image.BICUBIC)
+            # img = transforms.CenterCrop((self.crop_height, self.crop_width))(img)
+            # crop
+            img = img.crop((
+                self.crop_x,
+                self.crop_y,
+                self.crop_x + self.crop_width,
+                self.crop_y + self.crop_height
+            ))
+        else:
+            raise Exception("Inpaint mask images not supported for non-bucket datasets")
+
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+        if self.aug_replay_spatial_transforms:
+            self.inpaint_mask_tensor = self.augment_spatial_control(img, transform=transform)
+        else:
+            self.inpaint_mask_tensor = transform(img)
+        self.inpaint_mask_tensor = value_map(self.inpaint_mask_tensor, 0, 1.0, self.inpaint_mask_min_value, 1.0)
+        # convert to grayscale
+
+    def cleanup_inpaint_mask(self: 'FileItemDTO'):
+        self.inpaint_mask_tensor = None
+
+class VTONFileItemDTOMixin:
+    def __init__(self: 'FileItemDTO', *args, **kwargs):
+        if hasattr(super(), '__init__'):
+            super().__init__(*args, **kwargs)
+        self.has_inpaint_image = False
+        self.cloth_path: Union[str, None] = None
+        self.cloth_tensor: Union[torch.Tensor, None] = None
+        self.inpaint_mask_path: Union[str, None] = None
+        self.inpaint_mask_tensor: Union[torch.Tensor, None] = None
+        dataset_config: 'DatasetConfig' = kwargs.get('dataset_config', None)
+        if dataset_config.cloth_path is not None:
+            # find the control image path
+            cloth_path = dataset_config.cloth_path
+            inpaint_mask_path = dataset_config.inpaint_mask_path
+            # we are using control images
+            img_path = kwargs.get('path', None)
+            img_ext_list = ['.jpg', '.jpeg', '.png', '.webp']
+            file_name_no_ext = os.path.splitext(os.path.basename(img_path))[0]
+            for ext in img_ext_list:
+                if os.path.exists(os.path.join(cloth_path, file_name_no_ext + ext)):
+                    self.cloth_path = os.path.join(cloth_path, file_name_no_ext + ext)
+                    self.has_inpaint_image = True
+                    break
+            for ext in img_ext_list:
+                if os.path.exists(os.path.join(inpaint_mask_path, file_name_no_ext + ext)):
+                    self.inpaint_mask_path = os.path.join(inpaint_mask_path, file_name_no_ext + ext)
+                    break
+
+    def load_vton_image(self: 'FileItemDTO'):
+        try:
+            img = Image.open(self.control_path).convert('RGB')
+            img = exif_transpose(img)
+        except Exception as e:
+            print_acc(f"Error: {e}")
+            print_acc(f"Error loading image: {self.control_path}")
+        try:
+            mask = Image.open(self.control_path).convert('RGB')
+            mask = exif_transpose(mask)
+        except Exception as e:
+            print_acc(f"Error: {e}")
+            print_acc(f"Error loading image: {self.control_path}")
+
+        w, h = img.size
+        if w > h and self.scale_to_width < self.scale_to_height:
+            # throw error, they should match
+            raise ValueError(
+                f"unexpected values: w={w}, h={h}, file_item.scale_to_width={self.scale_to_width}, file_item.scale_to_height={self.scale_to_height}, file_item.path={self.path}")
+        elif h > w and self.scale_to_height < self.scale_to_width:
+            # throw error, they should match
+            raise ValueError(
+                f"unexpected values: w={w}, h={h}, file_item.scale_to_width={self.scale_to_width}, file_item.scale_to_height={self.scale_to_height}, file_item.path={self.path}")
+
+        if self.flip_x:
+            # do a flip
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if self.flip_y:
+            # do a flip
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+
+        if self.dataset_config.buckets:
+            # scale and crop based on file item
+            img = img.resize((self.scale_to_width, self.scale_to_height), Image.BICUBIC)
+            # img = transforms.CenterCrop((self.crop_height, self.crop_width))(img)
+            # crop
+            img = img.crop((
+                self.crop_x,
+                self.crop_y,
+                self.crop_x + self.crop_width,
+                self.crop_y + self.crop_height
+            ))
+        else:
+            raise Exception("Inpaint images not supported for non-bucket datasets")
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ])
+        if self.aug_replay_spatial_transforms:
+            self.control_tensor = self.augment_spatial_control(img, transform=transform)
+        else:
+            self.control_tensor = transform(img)
+
+    def cleanup_control(self: 'FileItemDTO'):
+        self.control_tensor = None

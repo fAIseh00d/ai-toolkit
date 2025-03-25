@@ -11,7 +11,7 @@ from PIL.ImageOps import exif_transpose
 from toolkit import image_utils
 from toolkit.dataloader_mixins import CaptionProcessingDTOMixin, ImageProcessingDTOMixin, LatentCachingFileItemDTOMixin, \
     ControlFileItemDTOMixin, ArgBreakMixin, PoiFileItemDTOMixin, MaskFileItemDTOMixin, AugmentationFileItemDTOMixin, \
-    UnconditionalFileItemDTOMixin, ClipImageFileItemDTOMixin
+    UnconditionalFileItemDTOMixin, ClipImageFileItemDTOMixin, InpaintMaskFileItemDTOMixin, VTONFileItemDTOMixin
 
 
 if TYPE_CHECKING:
@@ -35,6 +35,8 @@ class FileItemDTO(
     ControlFileItemDTOMixin,
     ClipImageFileItemDTOMixin,
     MaskFileItemDTOMixin,
+    InpaintMaskFileItemDTOMixin,
+    # VTONFileItemDTOMixin,
     AugmentationFileItemDTOMixin,
     UnconditionalFileItemDTOMixin,
     PoiFileItemDTOMixin,
@@ -93,6 +95,7 @@ class FileItemDTO(
         self.cleanup_control()
         self.cleanup_clip_image()
         self.cleanup_mask()
+        self.cleanup_inpaint_mask()
         self.cleanup_unconditional()
 
 
@@ -106,6 +109,7 @@ class DataLoaderBatchDTO:
             self.control_tensor: Union[torch.Tensor, None] = None
             self.clip_image_tensor: Union[torch.Tensor, None] = None
             self.mask_tensor: Union[torch.Tensor, None] = None
+            self.inpaint_mask_tensor: Union[torch.Tensor, None] = None
             self.unaugmented_tensor: Union[torch.Tensor, None] = None
             self.unconditional_tensor: Union[torch.Tensor, None] = None
             self.unconditional_latents: Union[torch.Tensor, None] = None
@@ -113,7 +117,7 @@ class DataLoaderBatchDTO:
             self.clip_image_embeds_unconditional: Union[List[dict], None] = None
             self.sigmas: Union[torch.Tensor, None] = None  # can be added elseware and passed along training code
             self.extra_values: Union[torch.Tensor, None] = torch.tensor([x.extra_values for x in self.file_items]) if len(self.file_items[0].extra_values) > 0 else None
-            if not is_latents_cached:
+            if not is_latents_cached or any([x.inpaint_mask_tensor is not None for x in self.file_items]):
                 # only return a tensor if latents are not cached
                 self.tensor: torch.Tensor = torch.cat([x.tensor.unsqueeze(0) for x in self.file_items])
             # if we have encoded latents, we concatenate them
@@ -169,6 +173,21 @@ class DataLoaderBatchDTO:
                     else:
                         mask_tensors.append(x.mask_tensor)
                 self.mask_tensor = torch.cat([x.unsqueeze(0) for x in mask_tensors])
+
+            if any([x.inpaint_mask_tensor is not None for x in self.file_items]):
+                # find one to use as a base
+                base_inpaint_mask_tensor = None
+                for x in self.file_items:
+                    if x.inpaint_mask_tensor is not None:
+                        base_inpaint_mask_tensor = x.inpaint_mask_tensor
+                        break
+                inpaint_mask_tensors = []
+                for x in self.file_items:
+                    if x.inpaint_mask_tensor is None:
+                        inpaint_mask_tensors.append(torch.zeros_like(base_inpaint_mask_tensor))
+                    else:
+                        inpaint_mask_tensors.append(x.inpaint_mask_tensor)
+                self.inpaint_mask_tensor = torch.cat([x.unsqueeze(0) for x in inpaint_mask_tensors])
 
             # add unaugmented tensors for ones with augments
             if any([x.unaugmented_tensor is not None for x in self.file_items]):
