@@ -325,7 +325,7 @@ class BaseSDTrainProcess(BaseTrainProcess):
             dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=2)
 
             for data in dataloader:
-                prompt = sample_config.prompts[0]
+                prompt = data["prompt"][0]
                 latents, masked_latents = prepare_fill_latents(
                     data["image"],
                     data["im_mask"],

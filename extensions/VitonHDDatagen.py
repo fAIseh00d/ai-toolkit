@@ -52,6 +52,65 @@ def tensor_to_image(tensor, image_path):
             os.makedirs(dir_path)
         img.save(image_path)
 
+
+def sep_tags(txt: str):
+    lines = txt.replace('\n\n', '\n').split('\n')
+    data = {}
+    tag = ''
+    for l in lines:
+        sep_idx = l.find(':')
+        if sep_idx < 0:
+            data[tag] = '\n'.join([data.get(tag, ''), l])
+        if ' ' not in l[:sep_idx]:
+            tag = l[:sep_idx]
+            data[tag] = l[sep_idx+2:]
+        else:
+            data[tag] = '\n'.join([data.get(tag, ''), l])
+    return data
+
+
+PROMPT_CAMS = [
+    "Canon EOS R5, 85mm lens at f/1.4, f/5.6, sharp focus, minimal distortion.",
+    "Nikon Z7 II, 50mm lens at f/1.8, f/8, sharp focus, accurate color representation.",
+    "Fujifilm GFX 100S, 110mm lens at f/2, f/5.6, exceptional detail, minimal distortion.",
+    "Canon EOS 5D Mark IV, 100mm macro lens at f/2.8, f/8, sharp focus, true-to-life colors.",
+    "Sony Alpha 7R III, 70-200mm lens at f/2.8, f/5.6, sharp focus, minimal distortion.",
+    "Nikon D850, 105mm macro lens at f/2.8, f/8, exceptional detail, accurate color representation.",
+    "Canon EOS R6, 24-70mm lens at f/2.8, f/5.6, sharp focus, minimal distortion.",
+    "Sony A9 II, 135mm lens at f/1.8, f/5.6, sharp focus, true-to-life colors.",
+    "Nikon Z6, 85mm lens at f/1.8, f/5.6, exceptional detail, minimal distortion.",
+    "Canon EOS RP, 35mm macro lens at f/1.8, f/8, sharp focus, accurate color representation.",
+    "Sony A7R IV, 50mm lens at f/5.6, sharp focus, minimal distortion."
+]
+PROMPT_PERSON_ORDER = ['Person', 'Pose', 'Outfit', 'Top', 'Bottom', 'Accessories']
+PROMPT_START = """\
+This side-by-side pair of photographic images highlights a clothing and its styling on a model;
+[IMAGE1] Left side: A product photograph of a clothing item alone in a flat-lay fashion, displayed against a clean, solid-color background, only garment;
+[IMAGE2] Right Side: The exact same clothing is worn by a model in a lifestyle setting."""
+PROMPT_END = "A high-resolution image, professional photography, high contrast, editorial quality."
+PROMPT_TOP = "Top: The person is wearing the same clothing as featured on the left image."
+
+
+def gen_prompt(cloth_txt, human_txt, prompt_cam):
+    prompt_cloth = cloth_txt.replace("The image depicts", "The left image depicts")
+    human_data = sep_tags(human_txt)
+    prompt_human = []
+    for tag in PROMPT_PERSON_ORDER:
+        if tag == 'Top':
+            prompt_human.append(PROMPT_TOP)
+            continue
+        prompt_human.append(tag + ': ' + human_data[tag])
+    prompt_human = '\n'.join(prompt_human)
+
+    result = PROMPT_START + '\n\n'
+    result += prompt_cloth + '\n\n'
+    result += prompt_human + '\n\n'
+    result += PROMPT_END + '\n'
+    result += prompt_cam
+
+    return result
+
+
 class VitonHDTestDataset(data.Dataset):
     def __init__(
         self,
@@ -107,6 +166,11 @@ class VitonHDTestDataset(data.Dataset):
         self.c_names = c_names
         self.dataroot_names = dataroot_names
 
+        with open(os.path.join(self.dataroot, self.phase, "clothes.json"), 'rt', encoding='utf-8') as fp:
+            self.cloth_desc = json.load(fp)
+        with open(os.path.join(self.dataroot, self.phase, "images.json"), 'rt', encoding='utf-8') as fp:
+            self.human_desc = json.load(fp)
+
     def __getitem__(self, index):
         c_name = self.c_names[index]
         im_name = self.im_names[index]
@@ -149,6 +213,11 @@ class VitonHDTestDataset(data.Dataset):
         garment_mask = torch.zeros_like(1-mask)  # Create mask of same size as original
         extended_mask = torch.cat([garment_mask, 1-mask], dim=2)  # Concatenate masks
         result["inpaint_mask"] = extended_mask
+
+        result["prompt"] = gen_prompt(self.cloth_desc[c_name],
+                                      self.human_desc[im_name],
+                                      PROMPT_CAMS[index % len(PROMPT_CAMS)])
+
         return result
 
     def __len__(self):
