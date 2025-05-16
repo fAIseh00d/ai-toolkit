@@ -92,11 +92,13 @@ PROMPT_TOP = "Top: The person is wearing the same clothing as featured on the le
 
 
 def gen_prompt(cloth_txt, human_txt, prompt_cam):
+    # Fix for incorrect description
     prompt_cloth = cloth_txt.replace("The image depicts", "The left image depicts")
     human_data = sep_tags(human_txt)
     prompt_human = []
     for tag in PROMPT_PERSON_ORDER:
         if tag == 'Top':
+            # Replace actual clothing with replacing sentence
             prompt_human.append(PROMPT_TOP)
             continue
         prompt_human.append(tag + ': ' + human_data[tag])

@@ -645,7 +645,6 @@ class DatasetConfig:
         self.cloth_path: str = kwargs.get('cloth_path', None)  # depth maps, etc
         self.inpaint_mask_path: str = kwargs.get('inpaint_mask_path', None)  # depth maps, etc
         self.inpaint_mask_min_value: float = kwargs.get('inpaint_mask_min_value', 0.0)  # min value for . 0 - 1
-        self.is_vton: bool = kwargs.get('is_vton', False)
         self.num_repeats: int = kwargs.get('num_repeats', 1)  # number of times to repeat dataset
         # cache latents will store them in memory
         self.cache_latents: bool = kwargs.get('cache_latents', False)

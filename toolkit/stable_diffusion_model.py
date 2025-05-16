@@ -2095,7 +2095,7 @@ class StableDiffusion:
                         ph=2,
                         pw=2,
                         # c=latent_model_input.shape[1],
-                    )
+                    )   # remove explicit size for Flux-Fill
                     
                     if bypass_guidance_embedding:
                         restore_flux_guidance(self.unet)

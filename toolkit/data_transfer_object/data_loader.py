@@ -11,7 +11,7 @@ from PIL.ImageOps import exif_transpose
 from toolkit import image_utils
 from toolkit.dataloader_mixins import CaptionProcessingDTOMixin, ImageProcessingDTOMixin, LatentCachingFileItemDTOMixin, \
     ControlFileItemDTOMixin, ArgBreakMixin, PoiFileItemDTOMixin, MaskFileItemDTOMixin, AugmentationFileItemDTOMixin, \
-    UnconditionalFileItemDTOMixin, ClipImageFileItemDTOMixin, InpaintMaskFileItemDTOMixin, VTONFileItemDTOMixin
+    UnconditionalFileItemDTOMixin, ClipImageFileItemDTOMixin, InpaintMaskFileItemDTOMixin
 
 
 if TYPE_CHECKING:
@@ -36,7 +36,6 @@ class FileItemDTO(
     ClipImageFileItemDTOMixin,
     MaskFileItemDTOMixin,
     InpaintMaskFileItemDTOMixin,
-    # VTONFileItemDTOMixin,
     AugmentationFileItemDTOMixin,
     UnconditionalFileItemDTOMixin,
     PoiFileItemDTOMixin,
